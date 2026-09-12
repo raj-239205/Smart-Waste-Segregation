@@ -8,15 +8,13 @@ import time
 from typing import Any
 
 import cv2
+
 from ultralytics import YOLO
 
 from utils.waste_info import CLASS_COLORS
 
 TARGET_CLASSES = ("plastic", "paper", "metal", "glass", "organic")
 UNKNOWN_CLASS = "unknown"
-
-# OpenCV uses BGR while the shared project colors are stored as RGB.
-CLASS_COLORS_BGR = {key: (value[2], value[1], value[0]) for key, value in CLASS_COLORS.items()}
 
 
 def _box_area(box: list[int]) -> float:
@@ -40,9 +38,11 @@ def _containment(box_a: list[int], box_b: list[int]) -> float:
 
 
 def load_model(model_path: str | None = None) -> tuple[Any | None, str | None]:
-    """Load the requested model, then the production checkpoint, then YOLOv8n."""
+    """Load the production checkpoint, with YOLOv8n as a development fallback."""
     base_dir = os.path.dirname(os.path.abspath(__file__))
-    candidates = [model_path] if model_path else []
+    candidates = []
+    if model_path:
+        candidates.append(model_path)
     candidates.extend([
         os.path.join(base_dir, "model", "best.pt"),
         os.path.join(base_dir, "yolov8n.pt"),
@@ -50,13 +50,15 @@ def load_model(model_path: str | None = None) -> tuple[Any | None, str | None]:
 
     seen = set()
     for path in candidates:
-        if not path or path in seen or not os.path.exists(path):
+        if not path or path in seen:
             continue
         seen.add(path)
+        if not os.path.exists(path):
+            continue
         try:
             return YOLO(path), path
-        except Exception as exc:
-            print(f"Could not load model {path}: {exc}")
+        except Exception:
+            continue
     return None, None
 
 
@@ -76,9 +78,9 @@ def normalize_class_name(raw_name: str | None) -> str | None:
 
 
 def prepare_detections(results: Any, class_names: Any, accept_conf: float = 0.35) -> list[dict[str, Any]]:
-    """Convert YOLO output into accepted or review-state detections."""
-    names = class_names if isinstance(class_names, dict) else dict(enumerate(class_names))
+    """Convert YOLO results into stable detections with an explicit review state."""
     detections: list[dict[str, Any]] = []
+    names = class_names if isinstance(class_names, dict) else dict(enumerate(class_names))
 
     for result in results:
         if result.boxes is None:
@@ -102,10 +104,12 @@ def prepare_detections(results: Any, class_names: Any, accept_conf: float = 0.35
 
 
 def filter_detections(detections: list[dict[str, Any]], same_class_iou: float = 0.45, containment: float = 0.72) -> list[dict[str, Any]]:
-    """Suppress obvious duplicate or nested boxes without scene-specific rules."""
+    """Suppress obvious duplicate/sub-box detections using geometry and confidence."""
+    if not detections:
+        return []
+
     ordered = sorted(detections, key=lambda item: item.get("conf_val", 0.0), reverse=True)
     kept: list[dict[str, Any]] = []
-
     for det in ordered:
         duplicate = False
         for existing in kept:
@@ -114,45 +118,43 @@ def filter_detections(detections: list[dict[str, Any]], same_class_iou: float = 
             if det["Class"] == existing["Class"] and (iou >= same_class_iou or contained >= containment):
                 duplicate = True
                 break
-            if det["Class"] == UNKNOWN_CLASS and existing["Class"] == UNKNOWN_CLASS and (iou >= 0.50 or contained >= 0.80):
-                duplicate = True
-                break
+            if det["Class"] == UNKNOWN_CLASS and existing["Class"] == UNKNOWN_CLASS:
+                if iou >= 0.50 or contained >= 0.80:
+                    duplicate = True
+                    break
         if not duplicate:
             kept.append(det)
     return kept
 
 
-def annotate_frame(frame_bgr, detections):
-    """Draw color-coded boxes directly on a BGR OpenCV frame."""
-    height, width = frame_bgr.shape[:2]
-    canvas = frame_bgr.copy()
+def detect_frame(model: Any, frame_bgr, accept_conf: float = 0.35, iou: float = 0.45):
+    """Run inference on one BGR frame and return annotated BGR output plus detections."""
+    infer_conf = max(0.10, min(accept_conf - 0.10, 0.30))
+    results = model(frame_bgr, conf=infer_conf, iou=iou, agnostic_nms=False, verbose=False)
+    detections = prepare_detections(results, model.names, accept_conf=accept_conf)
+    detections = filter_detections(detections)
 
+    canvas = frame_bgr.copy()
+    height, width = canvas.shape[:2]
     for det in detections:
         x1, y1, x2, y2 = det["box"]
         x1, y1 = max(0, x1), max(0, y1)
         x2, y2 = min(width - 1, x2), min(height - 1, y2)
-        color = CLASS_COLORS_BGR.get(det["Class"], CLASS_COLORS_BGR[UNKNOWN_CLASS])
+        rgb = CLASS_COLORS.get(det["Class"], CLASS_COLORS[UNKNOWN_CLASS])
+        bgr = (rgb[2], rgb[1], rgb[0])
         label = f"{det['Class'].title()}  {det['Confidence']}"
-        cv2.rectangle(canvas, (x1, y1), (x2, y2), color, 2)
+        cv2.rectangle(canvas, (x1, y1), (x2, y2), bgr, 2)
         (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.52, 2)
         label_y1 = max(0, y1 - th - 10)
         label_y2 = max(th + 6, y1)
-        cv2.rectangle(canvas, (x1, label_y1), (min(width - 1, x1 + tw + 10), label_y2), color, -1)
-        cv2.putText(canvas, label, (x1 + 5, label_y2 - 6), cv2.FONT_HERSHEY_SIMPLEX, 0.52, (255, 255, 255), 2, cv2.LINE_AA)
+        cv2.rectangle(canvas, (x1, label_y1), (min(width - 1, x1 + tw + 10), label_y2), bgr, -1)
+        cv2.putText(canvas, label, (x1 + 5, label_y2 - 6), cv2.FONT_HERSHEY_SIMPLEX, 0.52,
+                    (255, 255, 255), 2, cv2.LINE_AA)
 
-    return canvas
-
-
-def detect_frame(model, frame, accept_conf=0.35, iou=0.45):
-    """Run inference and return an annotated BGR frame plus detection records."""
-    infer_conf = max(0.10, min(accept_conf - 0.10, 0.30))
-    results = model(frame, conf=infer_conf, iou=iou, agnostic_nms=False, verbose=False)
-    detections = prepare_detections(results, model.names, accept_conf=accept_conf)
-    detections = filter_detections(detections)
-    return annotate_frame(frame, detections), detections
+    return canvas, detections
 
 
-def run_image(model, image_path, output_path="result.jpg", accept_conf=0.35, iou=0.45):
+def run_image(model: Any, image_path: str, output_path: str = "result.jpg", accept_conf: float = 0.35, iou: float = 0.45):
     frame = cv2.imread(image_path)
     if frame is None:
         raise ValueError(f"Could not read image: {image_path}")
@@ -168,7 +170,37 @@ def run_image(model, image_path, output_path="result.jpg", accept_conf=0.35, iou
     return detections
 
 
-def run_webcam(model, camera_index=0, accept_conf=0.35, iou=0.45):
+def run_batch(model: Any, folder: str, output_dir: str = "runs/waste_tests", accept_conf: float = 0.35, iou: float = 0.45):
+    """Run the same pipeline over every image in a folder and print a compact report."""
+    os.makedirs(output_dir, exist_ok=True)
+    extensions = {".jpg", ".jpeg", ".png", ".webp"}
+    image_paths = sorted(
+        os.path.join(folder, name)
+        for name in os.listdir(folder)
+        if os.path.splitext(name)[1].lower() in extensions
+    )
+    if not image_paths:
+        raise ValueError(f"No supported images found in: {folder}")
+
+    total = accepted = review = 0
+    print(f"Batch test: {len(image_paths)} image(s)")
+    for image_path in image_paths:
+        output_path = os.path.join(output_dir, os.path.basename(image_path))
+        detections = run_image(model, image_path, output_path, accept_conf, iou)
+        total += len(detections)
+        accepted += sum(det["Status"] == "Accepted" for det in detections)
+        review += sum(det["Status"] == "Review" for det in detections)
+
+    print("\nBatch summary")
+    print(f"  Images tested: {len(image_paths)}")
+    print(f"  Objects detected: {total}")
+    print(f"  Accepted: {accepted}")
+    print(f"  Review/Unknown: {review}")
+    print(f"  Acceptance rate: {accepted / total:.1%}" if total else "  Acceptance rate: 0.0%")
+    print(f"  Annotated outputs: {os.path.abspath(output_dir)}")
+
+
+def run_webcam(model: Any, camera_index: int = 0, accept_conf: float = 0.35, iou: float = 0.45):
     cap = cv2.VideoCapture(camera_index)
     if not cap.isOpened():
         raise RuntimeError("Could not open the webcam. Check camera permissions and device availability.")
@@ -193,9 +225,11 @@ def run_webcam(model, camera_index=0, accept_conf=0.35, iou=0.45):
             known = sum(det["Class"] != UNKNOWN_CLASS for det in detections)
             unknown = len(detections) - known
 
-            cv2.rectangle(annotated, (10, 10), (315, 78), (15, 23, 42), -1)
-            cv2.putText(annotated, f"FPS  {fps:.1f}", (22, 38), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2, cv2.LINE_AA)
-            cv2.putText(annotated, f"Objects  {known}  |  Review  {unknown}", (22, 64), cv2.FONT_HERSHEY_SIMPLEX, 0.52, (220, 220, 220), 1, cv2.LINE_AA)
+            cv2.rectangle(annotated, (10, 10), (290, 78), (15, 23, 42), -1)
+            cv2.putText(annotated, f"FPS  {fps:.1f}", (22, 38), cv2.FONT_HERSHEY_SIMPLEX, 0.7,
+                        (255, 255, 255), 2, cv2.LINE_AA)
+            cv2.putText(annotated, f"Objects  {known}  |  Review  {unknown}", (22, 64),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.52, (220, 220, 220), 1, cv2.LINE_AA)
 
             cv2.imshow("Smart Waste Segregation - Live", annotated)
             if cv2.waitKey(1) & 0xFF == ord("q"):
@@ -207,32 +241,30 @@ def run_webcam(model, camera_index=0, accept_conf=0.35, iou=0.45):
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Smart Waste Segregation image/webcam detector")
-    parser.add_argument("source", nargs="?", help="Image path. Omit to use webcam, or pass 'webcam'.")
+    parser.add_argument("source", nargs="?", help="Image path, folder path, or 'webcam'. Omit to use webcam.")
     parser.add_argument("--model", default=None, help="Optional path to a YOLO .pt model")
     parser.add_argument("--conf", type=float, default=0.35, help="Acceptance confidence threshold (default: 0.35)")
     parser.add_argument("--iou", type=float, default=0.45, help="YOLO NMS IoU threshold (default: 0.45)")
     parser.add_argument("--camera", type=int, default=0, help="Webcam index (default: 0)")
-    parser.add_argument("--output", default="result.jpg", help="Output path for image detection")
+    parser.add_argument("--output", default="result.jpg", help="Output path for single-image detection")
+    parser.add_argument("--batch-output", default="runs/waste_tests", help="Output directory for folder tests")
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
-    if not 0.0 < args.conf <= 1.0:
-        raise SystemExit("--conf must be between 0 and 1")
-    if not 0.0 < args.iou < 1.0:
-        raise SystemExit("--iou must be between 0 and 1")
-
     model, model_path = load_model(args.model)
     if model is None:
-        print("Error: no usable model was found. Expected model/best.pt or yolov8n.pt.")
+        print("Error: no usable model was found. Expected model/best.pt.")
         sys.exit(1)
 
-    print(f"Model: {os.path.relpath(model_path, os.getcwd())}")
-    if args.source and args.source.lower() != "webcam":
-        run_image(model, args.source, args.output, args.conf, args.iou)
-    else:
+    print(f"Model: {os.path.relpath(model_path)}")
+    if not args.source or args.source.lower() == "webcam":
         run_webcam(model, args.camera, args.conf, args.iou)
+    elif os.path.isdir(args.source):
+        run_batch(model, args.source, args.batch_output, args.conf, args.iou)
+    else:
+        run_image(model, args.source, args.output, args.conf, args.iou)
 
 
 if __name__ == "__main__":
