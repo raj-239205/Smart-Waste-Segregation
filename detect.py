@@ -1,143 +1,106 @@
-"""
-Smart Waste Segregation - Detection Script
-Supports image and webcam inference
-"""
-import sys
+"""Standalone image and webcam inference for Smart Waste Segregation."""
+from __future__ import annotations
+
+import argparse
 import os
+import sys
 import time
+
 import cv2
-from ultralytics import YOLO
 
-# Import shared colors and mapping; convert RGB to BGR for OpenCV
-try:
-    from utils.waste_info import CLASS_COLORS as _RGB_COLORS, map_detected_class, filter_detections
-    CLASS_COLORS_BGR = {k: (v[2], v[1], v[0]) for k, v in _RGB_COLORS.items()}
-except ImportError:
-    CLASS_COLORS_BGR = {
-        'plastic': (0, 200, 0), 'paper': (255, 100, 0),
-        'metal': (50, 50, 255), 'glass': (200, 0, 200),
-        'organic': (0, 200, 255)
-    }
-    def map_detected_class(name):
-        return str(name).lower()
-    def filter_detections(dets, **kwargs):
-        return dets
+from utils.detection import annotate_image, filter_detections, load_model, prepare_detections
+from utils.waste_info import CLASS_COLORS
 
-def load_model(model_path=None):
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    if model_path is None:
-        model_path = os.path.join(base_dir, "model", "best.pt")
-    if not os.path.exists(model_path):
-        model_path = os.path.join(base_dir, "model", "garbage_yolov8s.pt")
-    if not os.path.exists(model_path):
-        if os.path.exists(os.path.join(base_dir, "yolov8n.pt")):
-            model_path = os.path.join(base_dir, "yolov8n.pt")
-        else:
-            print(f"Error: Model file not found at {model_path}")
-            sys.exit(1)
-    return YOLO(model_path)
 
-def draw_boxes(frame, results, class_colors, class_names):
-    raw_boxes = []
-    for r in results:
-        boxes = r.boxes
-        for box in boxes:
-            x1, y1, x2, y2 = map(int, box.xyxy[0])
-            cls_id = int(box.cls[0])
-            conf = float(box.conf[0])
-            
-            raw_name = class_names[cls_id]
-            cls_name = map_detected_class(raw_name)
-            if cls_name is None:
-                continue
-                
-            raw_boxes.append({
-                'Class': cls_name,
-                'Confidence': f"{conf:.2f}",
-                'conf_val': conf,
-                'box': [x1, y1, x2, y2]
-            })
-            
-    filtered = filter_detections(raw_boxes, img_bgr=frame)
-    for det in filtered:
-        x1, y1, x2, y2 = det['box']
-        cls_name = det['Class']
-        conf_str = det['Confidence']
-        color = class_colors.get(cls_name, (255, 255, 255))
-        
-        # Draw box and label
-        cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-        label = f"{cls_name} {conf_str}"
-        (label_width, label_height), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.55, 2)
-        cv2.rectangle(frame, (x1, y1 - label_height - 6), (x1 + label_width + 4, y1), color, -1)
-        cv2.putText(frame, label, (x1 + 2, y1 - 4), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 2)
-    return frame
+# OpenCV needs BGR colors; the shared utility stores RGB values.
+CLASS_COLORS_BGR = {key: (value[2], value[1], value[0]) for key, value in CLASS_COLORS.items()}
 
-def run_image(model, image_path):
-    print(f"Running inference on {image_path}...")
+
+def detect_frame(model, frame, accept_conf=0.35, iou=0.45):
+    results = model(frame, conf=max(0.10, min(accept_conf - 0.10, 0.30)), iou=iou, agnostic_nms=False, verbose=False)
+    detections = prepare_detections(results, model.names, accept_conf=accept_conf)
+    detections = filter_detections(detections)
+    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    annotated_rgb = annotate_image(rgb, detections, CLASS_COLORS)
+    return cv2.cvtColor(annotated_rgb, cv2.COLOR_RGB2BGR), detections
+
+
+def run_image(model, image_path, output_path="result.jpg", accept_conf=0.35, iou=0.45):
     frame = cv2.imread(image_path)
     if frame is None:
-        print(f"Error: Could not load image {image_path}")
-        return
-        
-    class_names = model.names
-    
-    results = model(frame, conf=0.25, iou=0.45, agnostic_nms=False)
-    annotated_frame = draw_boxes(frame, results, CLASS_COLORS_BGR, class_names)
-    
-    cv2.imwrite('result.jpg', annotated_frame)
-    print("Result saved as 'result.jpg'.")
-    
-    try:
-        cv2.imshow('Detection Result', annotated_frame)
-        print("Press any key in the window to close it.")
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
-    except Exception as e:
-        print(f"Note: Could not display window ({e}). 'result.jpg' was saved successfully.")
+        raise ValueError(f"Could not read image: {image_path}")
 
-def run_webcam(model):
-    print("Starting webcam detection... Press 'q' to quit.")
-    cap = cv2.VideoCapture(0)
-    
-    class_names = model.names
-    
-    prev_time = 0
-    
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            print("Error: Could not read frame from webcam.")
-            break
-            
-        # FPS calculation
-        curr_time = time.time()
-        fps = 1 / (curr_time - prev_time) if (curr_time - prev_time) > 0 else 0
-        prev_time = curr_time
-        
-        results = model(frame, conf=0.30, iou=0.45, agnostic_nms=False, verbose=False)
-        annotated_frame = draw_boxes(frame, results, CLASS_COLORS_BGR, class_names)
-        
-        # Display FPS and instructions
-        cv2.putText(annotated_frame, f"FPS: {fps:.1f}", (10, 30), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-        cv2.putText(annotated_frame, "Press q to quit", (10, 60), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
-                    
-        cv2.imshow('Smart Waste Segregation - Real Time Detection', annotated_frame)
-        
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
-            
-    cap.release()
-    cv2.destroyAllWindows()
+    annotated, detections = detect_frame(model, frame, accept_conf, iou)
+    cv2.imwrite(output_path, annotated)
+
+    print(f"Saved result to: {output_path}")
+    print(f"Detections: {len(detections)}")
+    for index, det in enumerate(detections, start=1):
+        print(f"  {index}. {det['Class']} ({det['Confidence']}) - {det['Status']}")
+    return detections
+
+
+def run_webcam(model, camera_index=0, accept_conf=0.35, iou=0.45):
+    cap = cv2.VideoCapture(camera_index)
+    if not cap.isOpened():
+        raise RuntimeError("Could not open the webcam. Check camera permissions and device availability.")
+
+    print("Webcam detection started. Press Q to quit.")
+    previous_time = time.perf_counter()
+    fps = 0.0
+
+    try:
+        while True:
+            ok, frame = cap.read()
+            if not ok:
+                print("Could not read a frame from the webcam.")
+                break
+
+            now = time.perf_counter()
+            instant_fps = 1.0 / max(now - previous_time, 1e-6)
+            previous_time = now
+            fps = 0.85 * fps + 0.15 * instant_fps if fps else instant_fps
+
+            annotated, detections = detect_frame(model, frame, accept_conf, iou)
+            known = sum(det["Class"] != "unknown" for det in detections)
+            unknown = len(detections) - known
+
+            cv2.rectangle(annotated, (10, 10), (290, 78), (15, 23, 42), -1)
+            cv2.putText(annotated, f"FPS  {fps:.1f}", (22, 38), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2, cv2.LINE_AA)
+            cv2.putText(annotated, f"Objects  {known}  |  Review  {unknown}", (22, 64), cv2.FONT_HERSHEY_SIMPLEX, 0.52, (220, 220, 220), 1, cv2.LINE_AA)
+
+            cv2.imshow("Smart Waste Segregation - Live", annotated)
+            if cv2.waitKey(1) & 0xFF == ord("q"):
+                break
+    finally:
+        cap.release()
+        cv2.destroyAllWindows()
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Smart Waste Segregation image/webcam detector")
+    parser.add_argument("source", nargs="?", help="Image path. Omit to use webcam, or pass 'webcam'.")
+    parser.add_argument("--model", default=None, help="Optional path to a YOLO .pt model")
+    parser.add_argument("--conf", type=float, default=0.35, help="Acceptance confidence threshold (default: 0.35)")
+    parser.add_argument("--iou", type=float, default=0.45, help="YOLO NMS IoU threshold (default: 0.45)")
+    parser.add_argument("--camera", type=int, default=0, help="Webcam index (default: 0)")
+    parser.add_argument("--output", default="result.jpg", help="Output path for image detection")
+    return parser.parse_args()
+
+
+def main():
+    args = parse_args()
+    model, model_path = load_model(args.model)
+    if model is None:
+        print("Error: no usable model was found. Expected model/best.pt.")
+        sys.exit(1)
+
+    print(f"Model: {os.path.relpath(model_path)}")
+    if args.source and args.source.lower() != "webcam":
+        run_image(model, args.source, args.output, args.conf, args.iou)
+    else:
+        run_webcam(model, args.camera, args.conf, args.iou)
+
 
 if __name__ == "__main__":
-    model = load_model()
-    
-    if len(sys.argv) > 1 and sys.argv[1] != 'webcam':
-        image_path = sys.argv[1]
-        run_image(model, image_path)
-    else:
-        run_webcam(model)
+    main()
