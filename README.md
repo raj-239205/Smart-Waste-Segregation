@@ -12,7 +12,6 @@ An AI-powered waste detection application built with **YOLOv8, OpenCV and Stream
 - Detection statistics and category counts
 - Annotated-image download
 - Standalone real-time webcam detection
-- Batch testing for a folder of images
 - Reproducible training configuration with validation metrics and plots
 - Category-specific disposal guidance
 
@@ -41,7 +40,33 @@ Unknown is an uncertainty rejection state, not a separately trained sixth class.
 
 ## Dataset
 
-YOLO-format dataset with five classes:
+The project uses the **Garbage Classification** YOLO dataset from Roboflow Universe:
+
+urlGarbage Classification datasethttps://universe.roboflow.com/material-identification/garbage-classification-3/dataset/2
+
+The downloaded source dataset contains 10,464 labeled images across train/validation/test splits and six source classes:
+
+```text
+BIODEGRADABLE
+CARDBOARD
+GLASS
+METAL
+PAPER
+PLASTIC
+```
+
+This project intentionally uses five classes. `download_dataset.py` converts the source dataset as follows:
+
+```text
+BIODEGRADABLE -> organic
+CARDBOARD     -> paper
+GLASS         -> glass
+METAL         -> metal
+PAPER         -> paper
+PLASTIC       -> plastic
+```
+
+The resulting project class IDs are:
 
 ```text
 0 -> plastic
@@ -51,9 +76,17 @@ YOLO-format dataset with five classes:
 4 -> organic
 ```
 
-The dataset is not committed to the repository. See `download_dataset.py` for setup instructions.
+### Prepare the dataset
 
-**Important:** the project ZIP used during the code review contained the dataset directory structure but no train/validation/test image or label files. Therefore, no new training run or honest accuracy/mAP claim is made from that ZIP alone.
+After downloading the ZIP, place it beside the project and run:
+
+```bash
+python download_dataset.py "waste datasets.zip"
+```
+
+The script extracts the source dataset, converts the six source classes to the five project classes, creates the expected `dataset/images/...` and `dataset/labels/...` structure, and removes the temporary extraction directory.
+
+**Why the 191 MB ZIP is not committed directly to GitHub:** GitHub's normal repository file interface has a 100 MB per-file limit. The supplied dataset ZIP is larger than that limit, so the repository stores the reproducible preparation workflow and exact dataset source instead of pretending the binary dataset has been committed.
 
 ## Model
 
@@ -95,17 +128,9 @@ Single image detection:
 python detect.py path/to/image.jpg
 ```
 
-Batch-test a folder of images:
-
-```bash
-python detect.py assets/sample_images --batch-output runs/waste_tests
-```
-
-The batch mode uses the same model loading, confidence acceptance, duplicate filtering and annotation pipeline as single-image detection. It prints total detections, accepted detections, review/unknown detections and acceptance rate, and saves annotated outputs.
-
 ## Training
 
-Place the dataset in the structure defined by `data.yaml`, then run:
+First prepare the dataset with `download_dataset.py`, then run:
 
 ```bash
 python train.py
@@ -126,19 +151,17 @@ For a proper final evaluation, use a held-out labeled test/validation set and re
 - Validation examples
 - Real-world tests across lighting, viewpoints, backgrounds and object sizes
 
-Ultralytics provides validation through `model.val()` and exposes metrics such as `map50`, `map` (mAP@50-95), per-class mAP and confusion-matrix information. See the official validation documentation for the exact API. 
-
-Because the supplied project ZIP did not contain labeled dataset images, those metrics cannot be recomputed from the supplied files without first restoring the dataset.
+Ultralytics provides validation through `model.val()` and exposes metrics such as `map50`, `map` (mAP@50-95), per-class mAP and confusion-matrix information.
 
 ## Project structure
 
 ```text
 Smart-Waste-Segregation/
 ├── app.py                       # Streamlit UI + inference pipeline
-├── detect.py                    # Standalone image/webcam/batch inference
+├── detect.py                    # Standalone image/webcam inference
 ├── train.py                     # Training + validation
 ├── data.yaml                    # Dataset configuration
-├── download_dataset.py          # Dataset setup instructions
+├── download_dataset.py          # Dataset preparation + class conversion
 ├── requirements.txt             # Dependencies
 ├── README.md                    # Documentation
 ├── result.jpg                   # Example output
