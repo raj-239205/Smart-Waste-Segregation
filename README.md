@@ -1,110 +1,199 @@
-# Smart Waste Segregation using Computer Vision
+# ♻️ Smart Waste Segregation using Computer Vision
 
-## Overview
-This project uses computer vision to automatically detect and classify different types of waste into five categories: plastic, paper, metal, glass, and organic. It uses a fine-tuned YOLOv8 object detection model to draw bounding boxes around waste items in images or real-time video streams. The system includes both a Streamlit web application for image uploads and a standalone script for webcam detection.
+An AI-powered waste detection application built with **YOLOv8, OpenCV and Streamlit**. The system identifies five supported waste categories and provides practical segregation guidance.
 
-## Objective
-This project was developed to automate the waste segregation process using deep learning techniques. The goal is to build an efficient, edge-deployable system that can assist in identifying recyclable and compostable materials to improve waste management workflows.
+## ✨ Features
 
-## Technologies Used
+- 🖼️ Image upload and camera capture through Streamlit
+- 🎯 YOLOv8 object detection with configurable confidence and IoU thresholds
+- ♻️ Five supported categories: **Plastic, Paper, Metal, Glass, Organic**
+- ⚠️ Explicit **Unknown / Review** state for low-confidence predictions
+- 🧹 Geometry-based duplicate/sub-box suppression instead of scene-specific pixel rules
+- 📊 Detection count, classification count, review count and average confidence
+- 📋 Downloadable annotated detection image
+- 🎥 Standalone real-time webcam detector
+- 🧪 Reproducible training configuration with validation metrics and plots
+- 📚 Category-specific disposal and segregation guidance
+
+## 🧠 How the system works
+
+```text
+Image / Camera
+      ↓
+YOLOv8 inference
+      ↓
+Candidate detections
+      ↓
+Confidence acceptance
+      ↓
+Duplicate / overlap filtering
+      ↓
+┌───────────────────────┐
+│ Known waste category  │ → Plastic / Paper / Metal / Glass / Organic
+│ Low-confidence        │ → Unknown / Review
+└───────────────────────┘
+      ↓
+Annotated result + statistics + segregation guidance
+```
+
+### Important note about Unknown
+
+`Unknown / Review` is an **uncertainty rejection state**, not a separately trained sixth class. A prediction is sent to review when its confidence is below the configured acceptance threshold or when its class name is outside the supported categories. A true open-set unknown detector would require dedicated unknown/open-set training and evaluation.
+
+## 🛠️ Technologies
+
 - Python 3.11
-- YOLOv8 (Ultralytics)
+- Ultralytics YOLOv8
 - OpenCV
 - NumPy
 - Pandas
-- Matplotlib
 - Streamlit
-- Jupyter Notebook
+- Pillow
+- Matplotlib
 
-## Dataset
-- **Source:** Roboflow Universe
-- **Format:** YOLOv8 (images + YOLO-format .txt labels)
-- **Classes:** plastic, paper, metal, glass, organic
-- **Split:** ~1287 train, ~215 validation images
-- **Note:** Dataset not included in repository. See `download_dataset.py` for instructions.
+## 📦 Dataset
 
-## Model
-- **Base:** YOLOv8n (nano) pretrained on COCO
-- **Fine-tuned:** On custom waste detection dataset
-- **Training:** 50 epochs, 640x640 image size, batch size 16, AdamW optimizer
+The project uses a YOLO-format waste detection dataset with five classes:
 
-## Installation
+```text
+0 → plastic
+1 → paper
+2 → metal
+3 → glass
+4 → organic
+```
+
+The dataset itself is intentionally not committed to the repository. See `download_dataset.py` for the expected directory structure.
+
+## 🤖 Model
+
+- Base checkpoint: **YOLOv8n pretrained on COCO**
+- Fine-tuned checkpoint: `model/best.pt`
+- Default training: 50 epochs, 640×640, batch size 16
+- Optimizer: AdamW
+- Reproducibility seed: 42
+- Early stopping patience: 12 epochs
+- Training/validation plots are written to `runs/detect/waste_seg/`
+
+## 🚀 Installation
 
 ```bash
-# Clone the repository
-git clone <repo-url>
+git clone https://github.com/raj-239205/Smart-Waste-Segregation.git
 cd Smart-Waste-Segregation
 
-# Install Python 3.11 (if not installed)
-# Download from https://www.python.org/downloads/
+python -m venv .venv
+.venv\Scripts\activate
 
-# Install dependencies
 pip install -r requirements.txt
 ```
 
-## Dataset Setup
-To download and prepare the dataset for training, refer to the instructions inside the `download_dataset.py` script.
-
-## Training the Model
-```bash
-python train.py
-```
-*Note: Training requires a GPU (e.g., NVIDIA GeForce RTX 3050) and takes approximately 30-60 minutes.*
-
-## Running the Application
+## ▶️ Run the Streamlit application
 
 ```bash
-# Streamlit web app
 streamlit run app.py
+```
 
-# Webcam real-time detection
+The application supports either an uploaded image or a camera capture. Use the sidebar to adjust the acceptance confidence and NMS IoU threshold.
+
+## 🎥 Run webcam detection
+
+```bash
 python detect.py
+```
 
-# Single image detection
+Press **Q** to exit the webcam window.
+
+## 🖼️ Detect a single image from the command line
+
+```bash
 python detect.py path/to/image.jpg
 ```
 
-## How It Works
-1. User uploads an image via the web app or provides a camera feed.
-2. The image is preprocessed and passed to the YOLOv8 model.
-3. The model detects waste objects and draws bounding boxes around them.
-4. Each detected object is classified into one of the 5 categories.
-5. The results are displayed with confidence scores and segregation information.
+Optional settings:
 
-## Project Structure
-```text
-Smart-Waste-Segregation/
-├── app.py                 # Streamlit web application
-├── detect.py              # Standalone detection (webcam / image)
-├── train.py               # Model training script
-├── data.yaml              # YOLOv8 dataset configuration
-├── download_dataset.py    # Dataset download instructions
-├── requirements.txt       # Python dependencies
-├── README.md              # Project documentation
-├── model/
-│   └── best.pt            # Trained model weights (after training)
-├── utils/
-│   └── waste_info.py      # Waste category and disposal info
-├── dataset/               # Dataset directory (not in repo)
-│   ├── images/
-│   └── labels/
-└── runs/                  # Training output (auto-generated)
+```bash
+python detect.py path/to/image.jpg --conf 0.40 --iou 0.45 --output result.jpg
 ```
 
-## Results
-*Results will be available after training. Training metrics are saved in `runs/detect/waste_seg/`*
+## 🏋️ Train the model
 
-## Limitations
-- Limited to 5 specific waste categories.
-- Detection performance heavily depends on image quality, angle, and lighting conditions.
-- May struggle to detect very small or partially hidden objects in cluttered environments.
-- Trained on a relatively small dataset (~1500 images).
+Place the dataset in the structure expected by `data.yaml`, then run:
 
-## Future Scope
-- Expand the model to recognize more waste categories (e-waste, medical waste).
-- Improve model robustness by training on a larger, more diverse dataset.
-- Deploy the system as a mobile application.
-- Integrate with IoT systems for smart waste bin applications.
+```bash
+python train.py
+```
 
-## Author
+Optional training parameters:
+
+```bash
+python train.py --epochs 50 --imgsz 640 --batch 16 --device 0
+```
+
+After training, the best checkpoint is copied automatically to:
+
+```text
+model/best.pt
+```
+
+The script also runs validation and reports mAP@50 and mAP@50–95 when available.
+
+## 📁 Project structure
+
+```text
+Smart-Waste-Segregation/
+├── app.py                       # Streamlit application
+├── detect.py                    # Image + webcam inference
+├── train.py                     # Training + validation
+├── data.yaml                    # Dataset configuration
+├── download_dataset.py          # Dataset setup instructions
+├── requirements.txt             # Python dependencies
+├── README.md                    # Documentation
+├── result.jpg                   # Example output
+│
+├── model/
+│   └── best.pt                  # Production trained checkpoint
+│
+├── utils/
+│   ├── detection.py             # Shared inference/post-processing
+│   └── waste_info.py             # Categories and segregation guidance
+│
+├── assets/                      # Project assets/sample images
+├── notebooks/                   # Experiments and analysis
+├── dataset/                     # Local dataset; not committed
+└── runs/                        # Local training outputs; not committed
+```
+
+## 📈 Evaluation
+
+For a meaningful model evaluation, report:
+
+- Precision
+- Recall
+- mAP@50
+- mAP@50–95
+- Per-class performance
+- Confusion matrix
+- Validation examples
+
+Training outputs are generated under `runs/detect/waste_seg/` and should be used when preparing the project report and presentation.
+
+## ⚠️ Limitations
+
+- The detector supports only five trained waste categories.
+- Unknown/review handling is confidence-based and should not be described as a true open-set classifier.
+- Performance depends on dataset diversity, lighting, viewpoint, object size and occlusion.
+- Automatic disposal guidance should complement, not replace, local waste-management rules.
+- The dataset is not included in the repository, so retraining requires obtaining the source dataset separately.
+
+## 🔮 Future scope
+
+- Add a dedicated unknown/open-set detection strategy
+- Expand to e-waste, hazardous waste and additional recyclable materials
+- Increase dataset size and environmental diversity
+- Add object tracking and temporal smoothing for webcam inference
+- Deploy to edge/mobile hardware
+- Integrate with smart-bin or IoT systems
+
+## 👨‍💻 Author
+
 Developed as part of B.Tech Industrial Training.
