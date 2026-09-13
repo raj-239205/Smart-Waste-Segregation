@@ -165,17 +165,55 @@ st.set_page_config(page_title="Smart Waste Segregation", page_icon="♻️", lay
 
 st.markdown("""
 <style>
-.stApp { background: #f6f8fb; }
-[data-testid="stHeader"] { background: rgba(246,248,251,0.92); }
-.hero { padding: 2rem 2.2rem; border-radius: 24px; background: linear-gradient(135deg, #0f172a 0%, #164e63 55%, #166534 100%); color: white; margin-bottom: 1.2rem; box-shadow: 0 16px 40px rgba(15, 23, 42, .16); }
-.hero h1 { margin: 0; font-size: 2.45rem; letter-spacing: -1px; }
-.hero p { margin: .55rem 0 0; opacity: .86; font-size: 1.03rem; }
-.section-title { font-size: 1.25rem; font-weight: 700; margin: .5rem 0 .7rem; }
-.info-card { padding: 1rem 1.1rem; border: 1px solid #e2e8f0; border-radius: 16px; background: white; box-shadow: 0 6px 18px rgba(15, 23, 42, .05); margin-bottom: .7rem; }
+/* Theme-aware base colors: works with Streamlit light and dark themes. */
+.stApp {
+    background: var(--background-color);
+    color: var(--text-color);
+}
+[data-testid="stHeader"] {
+    background: var(--background-color);
+}
+.hero {
+    padding: 2rem 2.2rem;
+    border-radius: 24px;
+    background: linear-gradient(135deg, #0f172a 0%, #164e63 55%, #166534 100%);
+    color: #ffffff;
+    margin-bottom: 1.2rem;
+    box-shadow: 0 16px 40px rgba(15, 23, 42, .16);
+}
+.hero h1 { margin: 0; font-size: 2.45rem; letter-spacing: -1px; color: #ffffff; }
+.hero p { margin: .55rem 0 0; opacity: .86; font-size: 1.03rem; color: #ffffff; }
+.section-title {
+    color: var(--text-color);
+    font-size: 1.25rem;
+    font-weight: 700;
+    margin: .5rem 0 .7rem;
+}
+.info-card {
+    padding: 1rem 1.1rem;
+    border: 1px solid rgba(127, 127, 127, .25);
+    border-radius: 16px;
+    background: var(--secondary-background-color);
+    color: var(--text-color);
+    box-shadow: 0 6px 18px rgba(15, 23, 42, .08);
+    margin-bottom: .7rem;
+}
+.info-card h4,
+.info-card p,
+.info-card b { color: var(--text-color); }
 .info-card h4 { margin: 0 0 .35rem; }
-.muted { color: #64748b; font-size: .9rem; }
+.muted { color: var(--text-color); opacity: .72; font-size: .9rem; }
 .stButton > button { border-radius: 12px; font-weight: 700; min-height: 2.7rem; }
-div[data-testid="stMetric"] { background: white; border: 1px solid #e2e8f0; padding: .8rem; border-radius: 15px; }
+div[data-testid="stMetric"] {
+    background: var(--secondary-background-color);
+    color: var(--text-color);
+    border: 1px solid rgba(127, 127, 127, .25);
+    padding: .8rem;
+    border-radius: 15px;
+}
+div[data-testid="stMetric"] label,
+div[data-testid="stMetric"] [data-testid="stMetricValue"],
+div[data-testid="stMetric"] [data-testid="stMetricDelta"] { color: var(--text-color); }
 </style>
 """, unsafe_allow_html=True)
 
