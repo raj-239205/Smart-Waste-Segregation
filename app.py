@@ -41,7 +41,6 @@ def _containment(box_a: list[int], box_b: list[int]) -> float:
 
 
 def load_model(model_path: str | None = None) -> tuple[Any | None, str | None]:
-    """Load the production checkpoint, with YOLOv8n only as a development fallback."""
     base_dir = os.path.dirname(os.path.abspath(__file__))
     candidates = []
     if model_path:
@@ -81,11 +80,6 @@ def normalize_class_name(raw_name: str | None) -> str | None:
 
 
 def prepare_detections(results: Any, class_names: Any, accept_conf: float = 0.35) -> list[dict[str, Any]]:
-    """Convert YOLO results into stable app detections.
-
-    Predictions below accept_conf are retained as Unknown/Review rather than
-    silently being presented as a confident waste class.
-    """
     detections: list[dict[str, Any]] = []
     names = class_names if isinstance(class_names, dict) else dict(enumerate(class_names))
 
@@ -111,7 +105,6 @@ def prepare_detections(results: Any, class_names: Any, accept_conf: float = 0.35
 
 
 def filter_detections(detections: list[dict[str, Any]], same_class_iou: float = 0.45, containment: float = 0.72) -> list[dict[str, Any]]:
-    """Suppress obvious duplicate/sub-box detections using geometry and confidence."""
     if not detections:
         return []
     ordered = sorted(detections, key=lambda item: item.get("conf_val", 0.0), reverse=True)
@@ -134,7 +127,6 @@ def filter_detections(detections: list[dict[str, Any]], same_class_iou: float = 
 
 
 def run_inference(image_rgb: np.ndarray, model: Any, infer_conf: float = 0.10, accept_conf: float = 0.35, iou: float = 0.45):
-    """Run low-floor YOLO inference, then apply an explicit acceptance threshold."""
     bgr = cv2.cvtColor(image_rgb, cv2.COLOR_RGB2BGR)
     results = model(bgr, conf=infer_conf, iou=iou, agnostic_nms=False, verbose=False)
     detections = prepare_detections(results, model.names, accept_conf=accept_conf)
@@ -142,7 +134,6 @@ def run_inference(image_rgb: np.ndarray, model: Any, infer_conf: float = 0.10, a
 
 
 def annotate_image(image_rgb: np.ndarray, detections: list[dict[str, Any]], colors_rgb: dict[str, tuple[int, int, int]]) -> np.ndarray:
-    """Draw readable detection overlays and return RGB image."""
     canvas = cv2.cvtColor(image_rgb.copy(), cv2.COLOR_RGB2BGR)
     height, width = canvas.shape[:2]
     for det in detections:
@@ -163,59 +154,87 @@ def annotate_image(image_rgb: np.ndarray, detections: list[dict[str, Any]], colo
 
 st.set_page_config(page_title="Smart Waste Segregation", page_icon="♻️", layout="wide", initial_sidebar_state="expanded")
 
-st.markdown("""
-<style>
-/* Theme-aware base colors: works with Streamlit light and dark themes. */
-.stApp {
-    background: var(--background-color);
-    color: var(--text-color);
-}
-[data-testid="stHeader"] {
-    background: var(--background-color);
-}
-.hero {
-    padding: 2rem 2.2rem;
-    border-radius: 24px;
-    background: linear-gradient(135deg, #0f172a 0%, #164e63 55%, #166534 100%);
-    color: #ffffff;
-    margin-bottom: 1.2rem;
-    box-shadow: 0 16px 40px rgba(15, 23, 42, .16);
-}
-.hero h1 { margin: 0; font-size: 2.45rem; letter-spacing: -1px; color: #ffffff; }
-.hero p { margin: .55rem 0 0; opacity: .86; font-size: 1.03rem; color: #ffffff; }
-.section-title {
-    color: var(--text-color);
-    font-size: 1.25rem;
-    font-weight: 700;
-    margin: .5rem 0 .7rem;
-}
-.info-card {
-    padding: 1rem 1.1rem;
-    border: 1px solid rgba(127, 127, 127, .25);
-    border-radius: 16px;
-    background: var(--secondary-background-color);
-    color: var(--text-color);
-    box-shadow: 0 6px 18px rgba(15, 23, 42, .08);
-    margin-bottom: .7rem;
-}
-.info-card h4,
-.info-card p,
-.info-card b { color: var(--text-color); }
-.info-card h4 { margin: 0 0 .35rem; }
-.muted { color: var(--text-color); opacity: .72; font-size: .9rem; }
-.stButton > button { border-radius: 12px; font-weight: 700; min-height: 2.7rem; }
-div[data-testid="stMetric"] {
-    background: var(--secondary-background-color);
-    color: var(--text-color);
-    border: 1px solid rgba(127, 127, 127, .25);
-    padding: .8rem;
-    border-radius: 15px;
-}
-div[data-testid="stMetric"] label,
-div[data-testid="stMetric"] [data-testid="stMetricValue"],
-div[data-testid="stMetric"] [data-testid="stMetricDelta"] { color: var(--text-color); }
-</style>
-""", unsafe_allow_html=True)
+
+def inject_css(dark: bool = True):
+    if dark:
+        bg, panel, panel2, text, muted, border = "#06141d", "#0b202c", "#102936", "#f3f7f8", "#a9bcc4", "#214452"
+        accent, accent2 = "#25c76b", "#1ed760"
+    else:
+        bg, panel, panel2, text, muted, border = "#f4f8f7", "#ffffff", "#edf5f1", "#102329", "#60747a", "#d4e3de"
+        accent, accent2 = "#138a52", "#18a85d"
+
+    st.markdown(f"""
+    <style>
+    :root {{ --sw-bg:{bg}; --sw-panel:{panel}; --sw-panel2:{panel2}; --sw-text:{text}; --sw-muted:{muted}; --sw-border:{border}; --sw-accent:{accent}; --sw-accent2:{accent2}; }}
+    .stApp {{ background:var(--sw-bg); color:var(--sw-text); }}
+    [data-testid="stHeader"] {{ background:transparent; }}
+    [data-testid="stToolbar"] {{ visibility:hidden; }}
+    .block-container {{ max-width:1450px; padding:1.25rem 2rem 2rem; }}
+    [data-testid="stSidebar"] {{ background:#071720; border-right:1px solid #173743; }}
+    [data-testid="stSidebar"] > div {{ padding-top:1.2rem; }}
+    [data-testid="stSidebar"] * {{ color:#edf7f5 !important; }}
+    .brand {{ display:flex; align-items:center; gap:12px; padding:0 8px 18px; border-bottom:1px solid #21404b; }}
+    .brand-icon {{ font-size:2.25rem; line-height:1; }}
+    .brand-title {{ font-size:1.15rem; font-weight:800; line-height:1.05; }}
+    .brand-title span {{ color:#2bd875; }}
+    .brand-sub {{ color:#91a9b0 !important; font-size:.72rem; margin:8px 8px 18px; }}
+    .nav-item {{ padding:11px 12px; border-radius:10px; margin:5px 0; font-size:.92rem; color:#dce9eb; }}
+    .nav-active {{ background:linear-gradient(90deg,#15985a,#1eae67); color:white; font-weight:700; }}
+    .side-spacer {{ height:20vh; }}
+    .eco-side {{ padding:16px 12px; border-top:1px solid #21404b; color:#8eb0b6; text-align:center; }}
+    .eco-side .big {{ color:#2bd875; font-weight:800; font-size:1rem; }}
+    .hero-row {{ display:flex; align-items:center; justify-content:space-between; gap:20px; margin:4px 0 16px; }}
+    .hero-title {{ margin:0; font-size:2.55rem; font-weight:850; letter-spacing:-1.4px; color:var(--sw-text); }}
+    .hero-title .green {{ color:#2bd875; }}
+    .hero-sub {{ margin:4px 0 0; color:var(--sw-muted); font-size:1rem; }}
+    .hero-eco {{ text-align:right; color:#d9e8e7; font-size:.9rem; line-height:1.25; }}
+    .hero-eco .globe {{ font-size:3.3rem; display:inline-block; vertical-align:middle; margin-right:8px; }}
+    .banner {{ background:linear-gradient(110deg,#09252c,#0b3033); border:1px solid #17605b; border-radius:12px; padding:15px 18px; margin:8px 0 18px; display:flex; justify-content:space-between; align-items:center; gap:20px; }}
+    .banner-title {{ font-weight:700; color:#f1faf7; font-size:.98rem; }}
+    .banner-copy {{ color:#a9c5c3; font-size:.83rem; margin-top:3px; }}
+    .banner-quote {{ color:#57e293; font-style:italic; font-size:.85rem; text-align:right; }}
+    .panel {{ background:var(--sw-panel); border:1px solid var(--sw-border); border-radius:14px; padding:16px; height:100%; box-shadow:0 10px 30px rgba(0,0,0,.10); }}
+    .panel-head {{ display:flex; align-items:center; justify-content:space-between; margin-bottom:13px; }}
+    .step {{ width:30px; height:30px; display:inline-flex; align-items:center; justify-content:center; border-radius:50%; background:#1fb965; color:white; font-weight:800; margin-right:9px; }}
+    .panel-title {{ color:var(--sw-text); font-weight:800; font-size:1.02rem; }}
+    .panel-copy {{ color:var(--sw-muted); font-size:.78rem; margin:2px 0 0 40px; }}
+    .detect-pill {{ background:#0b5d3d; color:#8df3bd; padding:8px 13px; border-radius:20px; font-size:.78rem; font-weight:800; }}
+    .image-card {{ background:#071820; border:1px solid #214452; border-radius:9px; padding:8px; }}
+    .image-label {{ color:#e9f2f2; font-size:.8rem; font-weight:700; margin:0 0 7px 2px; }}
+    .drop-zone {{ border:2px dashed #4d6873; border-radius:10px; min-height:150px; display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; color:#9db1b8; background:#091923; margin-top:12px; }}
+    .drop-icon {{ font-size:2.5rem; color:#9fb9c2; }}
+    .drop-title {{ color:#eaf4f3; font-size:.96rem; margin-top:6px; }}
+    .drop-sub {{ font-size:.74rem; margin-top:6px; }}
+    .summary {{ margin-top:16px; background:var(--sw-panel); border:1px solid var(--sw-border); border-radius:14px; padding:16px; }}
+    .summary-head {{ display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }}
+    .summary-title {{ color:var(--sw-text); font-weight:800; font-size:1.12rem; }}
+    .summary-copy {{ color:var(--sw-muted); font-size:.76rem; margin-top:2px; }}
+    .summary-download {{ text-align:right; }}
+    .waste-card {{ border:1px solid; border-radius:11px; padding:13px; min-height:190px; background:rgba(255,255,255,.025); }}
+    .waste-icon {{ width:42px; height:42px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:1.35rem; margin-bottom:9px; }}
+    .waste-name {{ font-size:.95rem; font-weight:800; }}
+    .waste-count {{ color:var(--sw-text); font-size:.8rem; margin-top:2px; }}
+    .confidence {{ color:var(--sw-text); font-size:.76rem; margin-top:13px; }}
+    .bar {{ height:8px; background:rgba(255,255,255,.12); border-radius:8px; overflow:hidden; margin-top:6px; }}
+    .bar > span {{ display:block; height:100%; border-radius:8px; }}
+    .dispose {{ margin-top:12px; color:var(--sw-muted); font-size:.72rem; }}
+    .dispose strong {{ display:block; color:var(--sw-text); font-size:.82rem; margin-top:2px; }}
+    .unknown-box {{ margin-top:14px; border:1px solid #1d6b4c; background:#09261f; border-radius:11px; padding:14px 16px; color:#dbeee8; }}
+    .unknown-title {{ color:#f0c24a; font-weight:800; font-size:.9rem; }}
+    .unknown-copy {{ color:#a9c1bb; font-size:.76rem; margin-top:4px; }}
+    .footer {{ border-top:1px solid var(--sw-border); margin-top:18px; padding-top:13px; display:flex; justify-content:space-between; color:var(--sw-muted); font-size:.75rem; }}
+    .stButton > button {{ border-radius:9px; min-height:2.55rem; font-weight:750; border:1px solid #315466; background:#0b202c; color:#edf7f7; }}
+    .stButton > button:hover {{ border-color:#2bd875; color:#ffffff; }}
+    button[kind="primary"] {{ background:linear-gradient(90deg,#19a85f,#22c66d) !important; border:none !important; color:white !important; }}
+    [data-testid="stFileUploader"] {{ background:#091923; border:1px solid #214452; border-radius:10px; padding:7px; }}
+    [data-testid="stFileUploaderDropzone"] {{ background:transparent; border:none; }}
+    [data-testid="stCameraInput"] {{ background:#091923; border:1px solid #214452; border-radius:10px; padding:7px; }}
+    [data-testid="stImage"] img {{ border-radius:7px; }}
+    [data-testid="stMetric"] {{ background:var(--sw-panel2); border:1px solid var(--sw-border); border-radius:10px; }}
+    [data-testid="stDataFrame"] {{ border:1px solid var(--sw-border); border-radius:9px; overflow:hidden; }}
+    @media (max-width: 900px) {{ .hero-title {{font-size:2rem;}} .hero-eco {{display:none;}} .block-container {{padding:1rem;}} }}
+    </style>
+    """, unsafe_allow_html=True)
 
 
 @st.cache_resource
@@ -230,124 +249,177 @@ def build_download_image(image_rgb):
     return buffer.getvalue()
 
 
-def render_summary(detections):
+def render_summary_cards(detections):
     known = [d for d in detections if d["Class"] in TARGET_CLASSES]
     unknown = [d for d in detections if d["Class"] == UNKNOWN_CLASS]
-    total = len(detections)
-    avg_conf = sum(d["conf_val"] for d in known) / len(known) if known else 0
-    cols = st.columns(4)
-    cols[0].metric("Objects", total)
-    cols[1].metric("Classified", len(known))
-    cols[2].metric("Needs review", len(unknown))
-    cols[3].metric("Avg. confidence", f"{avg_conf:.0%}" if known else "—")
     counts = {name: sum(d["Class"] == name for d in detections) for name in TARGET_CLASSES}
-    counts[UNKNOWN_CLASS] = len(unknown)
-    return counts
 
-
-def render_waste_guide(classes):
-    if not classes:
-        return
-    st.markdown('<div class="section-title">♻️ Segregation guide</div>', unsafe_allow_html=True)
-    columns = st.columns(min(3, len(classes)))
-    for index, class_name in enumerate(classes):
-        info = get_waste_info(class_name)
-        with columns[index % len(columns)]:
-            st.markdown(f"""
-            <div class="info-card">
-                <h4>{class_name.title()}</h4>
-                <div class="muted">{info['category']} · Suggested bin: {info['bin_color']}</div>
-                <p><b>Examples:</b> {', '.join(info['examples']) if info['examples'] else '—'}</p>
-                <p><b>Guidance:</b> {info['disposal']}</p>
-            </div>
-            """, unsafe_allow_html=True)
-
-
-def main():
-    st.markdown("""
-    <div class="hero">
-        <h1>♻️ Smart Waste Segregation</h1>
-        <p>AI-powered computer vision for practical waste classification and segregation guidance.</p>
+    st.markdown('<div class="summary">', unsafe_allow_html=True)
+    st.markdown(f"""
+    <div class="summary-head">
+      <div><div class="summary-title">📊 Detection Summary</div><div class="summary-copy">Category-wise detection results and disposal recommendations</div></div>
+      <div class="detect-pill">✓ {len(detections)} objects detected</div>
     </div>
     """, unsafe_allow_html=True)
 
-    model, model_path = get_model()
-    if model is None:
-        st.error("No usable YOLO model was found. Place the trained model at `model/best.pt` and install the dependencies from `requirements.txt`.")
-        st.stop()
+    cols = st.columns(5)
+    icons = {"plastic": "♻", "paper": "▤", "metal": "▣", "glass": "♢", "organic": "⌁"}
+    border = {"plastic": "#208ee8", "paper": "#9a57ef", "metal": "#f05b61", "glass": "#f0ad35", "organic": "#1fc878"}
+    icon_bg = {"plastic": "#143d68", "paper": "#39205c", "metal": "#5a2229", "glass": "#5a4219", "organic": "#154b35"}
 
-    with st.sidebar:
-        st.header("⚙️ Detection settings")
-        accept_conf = st.slider("Acceptance confidence", min_value=0.20, max_value=0.85, value=0.35, step=0.05,
-                                help="Predictions below this score are retained as Unknown/Review instead of being presented as a confident class.")
-        iou_thresh = st.slider("NMS IoU threshold", min_value=0.20, max_value=0.70, value=0.45, step=0.05,
-                               help="Controls how strongly overlapping detections are suppressed by YOLO.")
-        st.divider()
-        st.caption("Model")
-        st.code(os.path.relpath(model_path, os.path.dirname(os.path.abspath(__file__))), language="text")
-        st.caption("Supported classes")
-        st.write(" · ".join(name.title() for name in TARGET_CLASSES))
-        with st.expander("About Unknown / Review"):
-            st.write("Unknown is an uncertainty/rejection state. It is used when the model's confidence is below the acceptance threshold or its class name is not one of the supported waste categories. It is not a separately trained sixth class.")
+    for idx, name in enumerate(TARGET_CLASSES):
+        count = counts[name]
+        info = get_waste_info(name)
+        avg = [d["conf_val"] for d in known if d["Class"] == name]
+        confidence = sum(avg) / len(avg) if avg else 0
+        with cols[idx]:
+            st.markdown(f"""
+            <div class="waste-card" style="border-color:{border[name]}">
+              <div class="waste-icon" style="background:{icon_bg[name]};color:{border[name]}">{icons[name]}</div>
+              <div class="waste-name" style="color:{border[name]}">{name.title()}</div>
+              <div class="waste-count">{count} object{'s' if count != 1 else ''}</div>
+              <div class="confidence">Confidence: {confidence:.0%}</div>
+              <div class="bar"><span style="width:{max(3, confidence*100):.0f}%;background:{border[name]}"></span></div>
+              <div class="dispose">Dispose in:<strong>{info['bin_color']} / {info['category']}</strong></div>
+            </div>
+            """, unsafe_allow_html=True)
 
-    st.markdown('<div class="section-title">📷 Choose an input</div>', unsafe_allow_html=True)
-    upload_col, camera_col = st.columns(2)
-    with upload_col:
-        uploaded = st.file_uploader("Upload an image", type=["jpg", "jpeg", "png", "webp"])
-    with camera_col:
-        captured = st.camera_input("Take a photo")
-
-    source = captured if captured is not None else uploaded
-    if source is None:
-        st.info("Upload a waste image or take a photo to start detection.")
-        st.markdown("""
-        <div class="info-card">
-            <h4>How it works</h4>
-            <p>1. Provide an image → 2. YOLOv8 detects candidate objects → 3. Low-confidence predictions are flagged for review → 4. The app shows categories, confidence, and disposal guidance.</p>
+    if unknown:
+        st.markdown(f"""
+        <div class="unknown-box">
+          <div class="unknown-title">⚠️ Unknown Items</div>
+          <div class="unknown-copy">{len(unknown)} item(s) need manual review because the system could not confidently assign a supported waste category.</div>
         </div>
         """, unsafe_allow_html=True)
-        return
+    else:
+        st.markdown("""
+        <div class="unknown-box">
+          <div class="unknown-title">⚠️ Unknown Items</div>
+          <div class="unknown-copy">No unknown items detected. All returned detections passed the current acceptance threshold.</div>
+        </div>
+        """, unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
+    return counts
 
-    try:
-        image = Image.open(source).convert("RGB")
-        st.image(image, caption="Input image", width="stretch")
-    except Exception as exc:
-        st.error(f"Could not read the selected image: {exc}")
-        return
 
-    if st.button("🔎 Detect Waste", type="primary", use_container_width=True):
-        with st.spinner("Analyzing image with YOLOv8…"):
-            image_rgb, detections = run_inference(np.array(image), model=model, infer_conf=max(0.10, min(accept_conf - 0.10, 0.30)), accept_conf=accept_conf, iou=iou_thresh)
-            annotated = annotate_image(image_rgb, detections, CLASS_COLORS)
+def main():
+    dark_mode = st.session_state.get("dark_mode", True)
+    inject_css(dark_mode)
 
-        counts = render_summary(detections)
-        st.divider()
-        result_col, detail_col = st.columns([1.35, 1])
-        with result_col:
-            st.markdown('<div class="section-title">🖼️ Detection result</div>', unsafe_allow_html=True)
-            st.image(annotated, width="stretch")
-            st.download_button("⬇️ Download annotated image", data=build_download_image(annotated), file_name="smart_waste_detection.jpg", mime="image/jpeg", use_container_width=True)
+    with st.sidebar:
+        st.markdown("""
+        <div class="brand"><div class="brand-icon">🍃</div><div class="brand-title">Smart Waste<br><span>Segregation</span></div></div>
+        <div class="brand-sub">Detect · Classify · A Cleaner Tomorrow</div>
+        <div class="nav-item nav-active">⌂ &nbsp; Home</div>
+        <div class="nav-item">▧ &nbsp; Upload Image</div>
+        <div class="nav-item">▣ &nbsp; Camera</div>
+        <div class="nav-item">⚙ &nbsp; How It Works</div>
+        <div class="nav-item">▤ &nbsp; Waste Guide</div>
+        """, unsafe_allow_html=True)
+        st.markdown('<div class="side-spacer"></div>', unsafe_allow_html=True)
+        st.markdown("""
+        <div class="eco-side"><div style="font-size:3rem">🌱</div><div class="big">Small Actions<br>Big Impact</div><div style="margin-top:10px">Clean Today<br>Greener Tomorrow</div></div>
+        """, unsafe_allow_html=True)
+        if st.toggle("Dark mode", value=dark_mode, key="dark_mode", help="Switch between the project dark and light theme.") != dark_mode:
+            st.rerun()
 
-        with detail_col:
-            st.markdown('<div class="section-title">📊 Detection details</div>', unsafe_allow_html=True)
-            if detections:
-                rows = [{"#": index, "Class": d["Class"].title(), "Confidence": d["Confidence"], "Status": d["Status"]} for index, d in enumerate(detections, start=1)]
-                st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
-            else:
-                st.warning("No candidate objects were detected. Try a clearer image or lower the acceptance confidence.")
+    model, model_path = get_model()
+    if model is None:
+        st.error("No usable YOLO model was found. Place the trained model at model/best.pt and install the dependencies.")
+        st.stop()
 
-            st.markdown('<div class="section-title">📦 Category counts</div>', unsafe_allow_html=True)
-            count_rows = [{"Category": name.title(), "Count": count} for name, count in counts.items() if count > 0]
-            if count_rows:
-                st.dataframe(pd.DataFrame(count_rows), hide_index=True, use_container_width=True)
+    st.markdown("""
+    <div class="hero-row">
+      <div><h1 class="hero-title">Smart <span class="green">Waste Segregation</span></h1><p class="hero-sub">Using Computer Vision for a Cleaner and Greener Tomorrow</p></div>
+      <div class="hero-eco"><span class="globe">🌍</span><strong>Reduce ♻ Reuse ♻ Recycle</strong></div>
+    </div>
+    <div class="banner"><div><div class="banner-title">🍃 &nbsp; Upload an image or use your camera to detect and classify waste items.</div><div class="banner-copy">The system identifies waste into categories and suggests the correct disposal method.</div></div><div class="banner-quote">“Small Actions<br>Make a Big Difference”</div></div>
+    """, unsafe_allow_html=True)
+
+    input_col, result_col = st.columns([1, 1.55], gap="medium")
+
+    with input_col:
+        st.markdown("""
+        <div class="panel">
+          <div class="panel-head"><div><span class="step">1</span><span class="panel-title">Upload Image or Use Camera</span><div class="panel-copy">Upload an image or use your camera</div></div></div>
+        """, unsafe_allow_html=True)
+        tab_upload, tab_camera = st.tabs(["📤  Upload Image", "📷  Use Camera"])
+        with tab_upload:
+            uploaded = st.file_uploader("Choose a waste image", type=["jpg", "jpeg", "png", "webp"], label_visibility="collapsed")
+            if uploaded is None:
+                st.markdown('<div class="drop-zone"><div class="drop-icon">☁</div><div class="drop-title">Drag and drop an image here<br>or click to browse</div><div class="drop-sub">Supported formats: JPG, JPEG, PNG</div></div>', unsafe_allow_html=True)
+        with tab_camera:
+            captured = st.camera_input("Take a photo", label_visibility="collapsed")
+            if captured is None:
+                st.markdown('<div class="drop-zone"><div class="drop-icon">📷</div><div class="drop-title">Capture a waste image with your camera</div><div class="drop-sub">Allow camera access when prompted</div></div>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+        source = captured if captured is not None else uploaded
+
+        with st.expander("⚙ Detection settings"):
+            accept_conf = st.slider("Acceptance confidence", 0.20, 0.85, 0.35, 0.05)
+            iou_thresh = st.slider("NMS IoU threshold", 0.20, 0.70, 0.45, 0.05)
+            st.caption(f"Model: `{os.path.relpath(model_path, os.path.dirname(os.path.abspath(__file__)))} | Classes: {', '.join(x.title() for x in TARGET_CLASSES)}`")
+
+        detect_clicked = st.button("🔎  Detect Waste", type="primary", use_container_width=True)
+
+    with result_col:
+        st.markdown("""
+        <div class="panel">
+          <div class="panel-head"><div><span class="step">2</span><span class="panel-title">Detection Result</span><div class="panel-copy">Detected objects with category and confidence</div></div><div class="detect-pill">✓ Ready</div></div>
+        """, unsafe_allow_html=True)
+
+        if source is None:
+            st.markdown('<div class="image-card"><div class="image-label">🖼 Original Image</div><div class="drop-zone" style="min-height:245px"><div class="drop-icon">♻</div><div class="drop-title">Your detection result will appear here</div><div class="drop-sub">Upload an image or capture one to begin</div></div></div>', unsafe_allow_html=True)
+        else:
+            try:
+                image = Image.open(source).convert("RGB")
+                if detect_clicked:
+                    with st.spinner("Analyzing image with YOLOv8…"):
+                        image_rgb, detections = run_inference(np.array(image), model=model, infer_conf=max(0.10, min(accept_conf - 0.10, 0.30)), accept_conf=accept_conf, iou=iou_thresh)
+                        annotated = annotate_image(image_rgb, detections, CLASS_COLORS)
+                    st.session_state["last_detection"] = (image_rgb, annotated, detections)
+                last = st.session_state.get("last_detection")
+                if last is not None:
+                    image_rgb, annotated, detections = last
+                    st.markdown('<div class="image-label">Original Image &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Annotated Result</div>', unsafe_allow_html=True)
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        st.image(image_rgb, use_container_width=True)
+                    with c2:
+                        st.image(annotated, use_container_width=True)
+                else:
+                    st.image(image, use_container_width=True)
+            except Exception as exc:
+                st.error(f"Could not read the selected image: {exc}")
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    if "last_detection" in st.session_state:
+        image_rgb, annotated, detections = st.session_state["last_detection"]
+        counts = render_summary_cards(detections)
+        action1, action2, action3 = st.columns([1, 1, 1])
+        with action1:
+            st.download_button("⬇ Download Annotated Image", data=build_download_image(annotated), file_name="smart_waste_detection.jpg", mime="image/jpeg", use_container_width=True)
+        with action2:
+            st.download_button("⬇ Export Detection Data", data=pd.DataFrame([{k: d[k] for k in ["Class", "Confidence", "Status"]} for d in detections]).to_csv(index=False) if detections else "Class,Confidence,Status\n", file_name="waste_detection.csv", mime="text/csv", use_container_width=True)
+        with action3:
+            if st.button("↻ Run Another Detection", use_container_width=True):
+                st.session_state.pop("last_detection", None)
+                st.rerun()
+
+        with st.expander("📋 Detection details"):
+            rows = [{"#": i, "Class": d["Class"].title(), "Confidence": d["Confidence"], "Status": d["Status"]} for i, d in enumerate(detections, 1)]
+            st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
 
         known_classes = [name for name in TARGET_CLASSES if counts.get(name, 0) > 0]
-        render_waste_guide(known_classes)
-        if counts.get(UNKNOWN_CLASS, 0):
-            st.warning(f"{counts[UNKNOWN_CLASS]} detection(s) need manual review. Do not make an automatic disposal decision from an Unknown result.")
+        if known_classes:
+            st.markdown('<div class="section-title">♻ Segregation Guide</div>', unsafe_allow_html=True)
+            guide_cols = st.columns(min(3, len(known_classes)))
+            for i, class_name in enumerate(known_classes):
+                info = get_waste_info(class_name)
+                with guide_cols[i % len(guide_cols)]:
+                    st.info(f"**{class_name.title()}** — {info['disposal']}")
 
-    st.divider()
-    st.caption("Smart Waste Segregation · YOLOv8 · Computer Vision · B.Tech Project")
+    st.markdown('<div class="footer"><span>Smart Waste Segregation &nbsp;|&nbsp; YOLOv8 · Computer Vision · Streamlit</span><span>Reduce ♻ &nbsp; Reuse ♻ &nbsp; Recycle</span></div>', unsafe_allow_html=True)
 
 
 if __name__ == "__main__":
