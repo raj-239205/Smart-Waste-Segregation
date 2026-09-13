@@ -10,9 +10,10 @@ from ultralytics import YOLO
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Train the waste-segmentation detector")
-    parser.add_argument("--epochs", type=int, default=50)
-    parser.add_argument("--imgsz", type=int, default=640)
-    parser.add_argument("--batch", type=int, default=16)
+    # Safer defaults for CPU-only laptops. These can still be overridden from CMD.
+    parser.add_argument("--epochs", type=int, default=25)
+    parser.add_argument("--imgsz", type=int, default=512)
+    parser.add_argument("--batch", type=int, default=8)
     parser.add_argument("--device", default=None, help="Optional CUDA device, e.g. 0")
     parser.add_argument("--model", default="yolov8n.pt")
     return parser.parse_args()
@@ -30,12 +31,14 @@ def main():
         imgsz=args.imgsz,
         batch=args.batch,
         optimizer="AdamW",
-        patience=12,
+        patience=8,
         seed=42,
-        project="runs/detect",
+        project="detect",
         name="waste_seg",
         exist_ok=True,
         plots=True,
+        workers=0,
+        cache=False,
         verbose=True,
     )
     if args.device:
@@ -52,7 +55,7 @@ def main():
     print(f"\nBest model copied to: {os.path.abspath('model/best.pt')}")
 
     print("\nRunning validation on the best checkpoint…")
-    metrics = model.val(data="data.yaml", imgsz=args.imgsz, plots=True)
+    metrics = model.val(data="data.yaml", imgsz=args.imgsz, plots=True, workers=0)
     try:
         print(f"mAP50: {metrics.box.map50:.4f}")
         print(f"mAP50-95: {metrics.box.map:.4f}")
